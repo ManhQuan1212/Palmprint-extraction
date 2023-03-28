@@ -410,4 +410,4 @@ def ROI_Extration(img):
     return img
 
 path_out_img = "./ROI/"
-
+roiImageFromHand(path_out_img, option, cap)

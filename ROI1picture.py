@@ -3,8 +3,8 @@ from tkinter import W
 import numpy as np
 import cv2
 import mediapipe as mp
-mp_drawing = mp.solutions.drawing_utils             # Vẽ đường thẳng và trỏ lên ảnh
-mp_drawing_styles = mp.solutions.drawing_styles     #
+mp_drawing = mp.solutions.drawing_utils
+mp_drawing_styles = mp.solutions.drawing_styles
 mp_hands = mp.solutions.hands
 import os
 option=1
@@ -50,37 +50,37 @@ def IncreaseContrast(img):
 
 def roiImageFromHand(path_out_img, option, cap):
     # For webcam input:
-    cap = cv2.VideoCapture(0)       # Sử dụng camera thứ nhất
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH,1024)  #  Chiều rộng của khung hình trong video
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT,768)  #  Chiều cao của khung hình trong video
-    cap.set(3, 1280)                        #  Set resolution
-    cap.set(4, 720)                         #  Set resolution
-    cap.set(cv2.CAP_PROP_FPS, 30)           #  Set FPS cho video
+    cap = cv2.VideoCapture(0)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH,1024)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT,768)
+    cap.set(3, 1280)
+    cap.set(4, 720)
+    cap.set(cv2.CAP_PROP_FPS, 30)
     with mp_hands.Hands(
             #model_complexity=0,
-            min_detection_confidence=0.5,   # Gía trị tối thiểu từ mô hình phát hiện bàn tay được coi thành công
-            min_tracking_confidence=0.5) as hands: #
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5) as hands:
         while cap.isOpened():
             if (option == 1): # option 1 is data collection
-                valueOfImage = len([entry for entry in os.listdir(path_out_img) if os.path.isfile(os.path.join(path_out_img, entry))]) + 1    # Số lượng ảnh sẽ thu thập
+                valueOfImage = len([entry for entry in os.listdir(path_out_img) if os.path.isfile(os.path.join(path_out_img, entry))]) + 1
                 # print("self.valueOfImage", self.valueOfImage)
-                if (valueOfImage < 2):                      # Nếu ảnh thu thập nhỏ hơn ngưỡng nào đó => Kết thúc
-                    success; image = cap.read()
+                if (valueOfImage < 2):
+                    success, image = cap.read()
                     print(image.shape)
-                    if not success:                         # Trường hợp chưa lấy hết số lượng ảnh cần lấy
+                    if not success:
                         print("Ignoring empty camera frame.")
                         # If loading a video, use 'break' instead of 'continue'.
                         continue
                     try:
 
-                        imgaeResize = IncreaseContrast(image)           # Tang độ sáng của ảnh
+                        imgaeResize = IncreaseContrast(image)
 
                         imageOutput = imgaeResize
 
                         #cv2.imshow("DEFAULT ", image)
-                        cv2.imshow("RESIZE ", imgaeResize)              #Show ảnh sáng đó
+                        cv2.imshow("RESIZE ", imgaeResize)
 
-                        imgaeRGB = imgaeResize                          #
+                        imgaeRGB = imgaeResize
                         imgaeResize.flags.writeable = False
                         imgaeRGB.flags.writeable = False
                         #image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -273,7 +273,7 @@ def roiImageFromHand(path_out_img, option, cap):
                                 cv2.imwrite(path, roi_img)
                                 
                                 
-                        if cv2.waitKey(5) & 0xFF == 27:
+                        if cv2.waitKey(10) & 0xFF == 27:
                             break
 
                     except:
@@ -283,7 +283,7 @@ def roiImageFromHand(path_out_img, option, cap):
                     break
             else:
                 valueOfImage = len([entry for entry in os.listdir(path_out_img) if os.path.isfile(os.path.join(path_out_img, entry))]) + 1
-                if (valueOfImage <= 3):
+                if (valueOfImage < 2):
                     success, image = cap.read()
                     if not success:
                         print("Ignoring empty camera frame.")
@@ -295,8 +295,8 @@ def roiImageFromHand(path_out_img, option, cap):
 
                         imageOutput = imgaeResize
 
-                        #cv2.imshow("DEFAULT ", image)
-                        # cv2.imshow("RESIZE ", imgaeResize)
+                        cv2.imshow("DEFAULT ", image)
+                        cv2.imshow("RESIZE ", imgaeResize)
                         imgaeResize.flags.writeable = False
                         #image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
                         results = hands.process(imgaeResize)
@@ -404,5 +404,6 @@ def roiImageFromHand(path_out_img, option, cap):
             
     #cap.release()
     return 1
+
 path_out_img = "./ROI/"
 roiImageFromHand(path_out_img, option, cap)

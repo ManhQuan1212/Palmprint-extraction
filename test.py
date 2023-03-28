@@ -21,7 +21,7 @@ import pickle
 
 labels = os.listdir('Dataset/')
 
-model = pickle.load(open('svm-63.model', 'rb'))
+model = pickle.load(open('svm-70.model', 'rb'))
 X_test = np.load('x_test.npy')
 y_test = np.load('y_test.npy')
 #print(X_test)
@@ -29,7 +29,7 @@ y_test = np.load('y_test.npy')
 pred = model.predict(X_test)
 print(accuracy_score(pred, y_test)*100)
 
-img = cv2.imread('random/003_001.jpg')
+img = cv2.imread('random/014_003.jpg')
 encode= LMTRP.LMTRP_process(img)
 print(encode)
 # encode = np.reshape(encode, (1, -1))
