@@ -16,6 +16,6 @@ def Removefile():
     for file_name in os.listdir(path):
         file = path + file_name
         if os.path.isfile(file):
-            print('Deleting file:', file)
+            #print('Deleting file:', file)
             os.remove(file)
 Removefile()

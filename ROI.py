@@ -1,224 +1,181 @@
-import cv2
+from ctypes import sizeof
+from tkinter import W
 import numpy as np
-import matplotlib.pyplot as plt
-from PIL import Image
+import cv2
+import mediapipe as mp
+mp_drawing = mp.solutions.drawing_utils
+mp_drawing_styles = mp.solutions.drawing_styles
+mp_hands = mp.solutions.hands
 import os
-inp='.Input\Anh.jpg'
-outp='./Output/14.bmp'
+import torch
+import torchvision.transforms as transforms
+from model.squeezenet import SqueezeNet
+import numpy as np
 
-def getROI(input_path,output_path):
-    blurSigma = 1.0
-    otsuThreshold = 0
+from torchvision import models
 
-    freqThreshold = 10
-
-    neighborDistance = 50
-
-    angle = np.array([0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180, 202.5, 225, 247.5, 270, 292.5, 315, 337.5])
-    angle = angle * np.pi / 180
-
-    sin = np.sin(angle)
-    cos = np.cos(angle)
-
-    d = np.array([neighborDistance, 0])
-    delta = np.zeros((16, 2))
-
-    for i in range(16):
-        delta[i] = np.dot(np.array([[cos[i], -sin[i]], [sin[i], cos[i]]]), d)
-
-    def nonValleySuppression(img, candidate):
-        rows, cols = img.shape
-        newCandidate = np.zeros((0, 2))
-
-        for c in candidate:
-            neighbor = np.round(c + delta).astype(np.int64)
-            neighbor = neighbor[(neighbor[:, 1] >= 0) & (neighbor[:, 1] < rows) & (neighbor[:, 0] >= 0) & (neighbor[:, 0] < cols)]
-            value = img[neighbor[:, 1], neighbor[:, 0]]
-
-        # Determine whether a hand-valley or not
-            count = np.sum(value == 0)
-            if count <= 7:
-                newCandidate = np.append(newCandidate, c.reshape(1, 2).astype(np.int64), axis = 0)
-
-        return newCandidate
-
-    original = cv2.imread(input_path, cv2.IMREAD_GRAYSCALE)
-    try:
-        original = cv2.resize(original,(1024,1024),3)
-    except:
-        print("Hata")
-    original = cv2.resize(original,(1024,1024))
-    # Smoothing
-    blurred = cv2.GaussianBlur(original, (0, 0), blurSigma)
-
-    # Lightening
-    c = 255 / np.log(np.max(blurred) + 1)
-    enhanced = (c * np.log(blurred + 1)).astype(np.uint8)
-
-    # Thresholding
-    retval, thresholded = cv2.threshold(enhanced, otsuThreshold, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-            
-
-    # fig, aarr = plt.subplots(1, 3)
-
-    # aarr[0].imshow(original, cmap = "gray")
-    # aarr[0].set_title("Original")
-    # aarr[0].axis("off")
-
-    # aarr[1].imshow(enhanced, cmap = "gray")
-    # aarr[1].set_title("Enhanced")
-    # aarr[1].axis("off")
-
-    # aarr[2].imshow(thresholded, cmap = "gray")
-    # aarr[2].set_title("Thresholded")
-    # aarr[2].axis("off")
-
-    # plt.show()
-
-    contours, hierarchy = cv2.findContours(thresholded, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)[-2:]
-
-    area = [cv2.contourArea(contour) for contour in contours]
-
-    order = np.argmax(area)
-    contour = contours[order]
-
-    boundary = cv2.cvtColor(original, cv2.COLOR_GRAY2BGR)
-    cv2.drawContours(boundary, contour, -1, (255, 0, 0), 3)
-
-    # plt.imshow(boundary)
-    # plt.show()
-
-    moments = cv2.moments(contour)
-    center = [moments['m10'] // moments['m00'], moments['m01'] // moments['m00']]
-
-    # plt.imshow(original, cmap = "gray")
-    # plt.plot(center[0], center[1], "ro", markersize = 3)
-    # plt.show()
-
-    # Calculating distances
-    contour = contour[:, 0, :]
-    distance = np.sqrt(np.sum((contour - center) ** 2, axis = 1)).reshape(-1)
-
-    # Low-pass filtering
-    freq = np.fft.rfft(distance)
-    newFreq = np.concatenate([freq[:freqThreshold], 0 * freq[freqThreshold:]])
-    newDistance = np.fft.irfft(newFreq)
-
-    # Derivation
-    derivation = np.diff(newDistance)
-    zeroCrossing = np.diff(np.sign(derivation)) / 2
-
-    # Local minima
-    candidate = contour[np.where(zeroCrossing > 0)[0]]
-
-    # CHVD algorithm
-    candidate = nonValleySuppression(thresholded, candidate)
-
-    # Three left most valleys
-    order = np.argsort(candidate[:, 0])
-    candidate = candidate[order]
-    candidate = candidate[:3]
-
-    # Top and bottom valleys of the triad
-    order = np.argsort(candidate[:, 1])
-    valley = candidate[[order[0], order[2]]]
-
-    # plt.imshow(original, cmap = "gray")
-    # plt.plot(valley[:, 0], valley[:, 1], "ro", markersize = 3)
-    # plt.show()
-
-    valley0, valley1 = valley
-    phi = - 90 + np.arctan2((valley1 - valley0)[1], (valley1 - valley0)[0]) * 180 / np.pi
-
-    R = cv2.getRotationMatrix2D(tuple(center), phi, 1)
-    rotated = cv2.warpAffine(original, R, original.shape[::-1])
-
-    valley0 = (np.dot(R[:, :2], valley0) + R[:, -1]).astype(np.int)
-    valley1 = (np.dot(R[:, :2], valley1) + R[:, -1]).astype(np.int)
-
-    # plt.imshow(rotated, cmap = "gray")
-    # plt.plot(valley0[0], valley0[1], "ro", markersize = 3)
-    # plt.plot(valley1[0], valley1[1], "ro", markersize = 3)
-    # plt.show()
-
-    rect0 = (valley0[0] + 2 * (valley1[1] - valley0[1]) // 6, valley0[1] - (valley1[1] - valley0[1]) // 6)
-    rect1 = (valley1[0] + 9 * (valley1[1] - valley0[1]) // 6, valley1[1] + (valley1[1] - valley0[1]) // 6)
-
-    marked = cv2.cvtColor(rotated, cv2.COLOR_GRAY2BGR)
-    cv2.rectangle(marked, rect0, rect1, (255, 0, 0), 3)
-
-    # plt.imshow(marked, cmap = "gray")
-    # plt.show()
-
-    roiGray = rotated[rect0[1]:rect1[1], rect0[0]:rect1[0]]
-
-    # plt.imshow(roiGray, cmap = "gray")
-    # plt.show()
-    
-    roiNormal = cv2.cvtColor(roiGray, cv2.COLOR_BGR2RGB)
-    fig, aarr = plt.subplots(1, 2)
-    aarr[0].imshow(roiGray, cmap = "gray")
-    aarr[1].imshow(roiNormal)
-
-    #plt.show()
-
-    grayCPY = cv2.cvtColor(roiNormal, cv2.COLOR_BGR2GRAY)
-    noise = cv2.fastNlMeansDenoising(grayCPY)
-    noise = cv2.cvtColor(noise, cv2.COLOR_GRAY2BGR)
-
-    # equalist hist
-    kernel = np.ones((7,7),np.uint8)
-    img = cv2.morphologyEx(noise, cv2.MORPH_OPEN, kernel)
-    img_yuv = cv2.cvtColor(img, cv2.COLOR_BGR2YUV)
-    img_yuv[:,:,0] = cv2.equalizeHist(img_yuv[:,:,0])
-    img_output = cv2.cvtColor(img_yuv, cv2.COLOR_YUV2BGR)
+import torch.nn as nn
+import time
 
 
-    # invert
-    inv = cv2.bitwise_not(img_output)
-
-        # erode
-    grayCPY = cv2.cvtColor(inv, cv2.COLOR_BGR2GRAY)
-    erosion = cv2.erode(grayCPY,kernel,iterations = 1)
-
-        # skel
-    img = grayCPY.copy()
-    skel = img.copy()
-    skel[:,:] = 0
-    kernel = cv2.getStructuringElement(cv2.MORPH_CROSS, (7,7))
-    iterations = 0
-    print("dongu")
-    while True:
-        eroded = cv2.morphologyEx(img, cv2.MORPH_ERODE, kernel)
-        temp = cv2.morphologyEx(eroded, cv2.MORPH_DILATE, kernel)
-        temp  = cv2.subtract(img, temp)
-        skel = cv2.bitwise_or(skel, temp)
-        img[:,:] = eroded[:,:]
-        if cv2.countNonZero(img) == 0:
-            break
-
-    ret, Thresh = cv2.threshold(skel, 7,255, cv2.THRESH_BINARY);
-    Thresh = cv2.resize(Thresh, (512,512))
-    roiNormal = cv2.resize(roiNormal, (512,512))
-    roiGray=cv2.resize(roiGray,(256,256))
+def check_and_convert_to_rgb(img):
+    # Check if image is in RGB format, if not convert it
+    if img.mode != 'RGB':
+        img = img.convert('RGB')
+    return img
 
 
-    # fig, aarr = plt.subplots(1, 2)
-    # aarr[0].imshow(roiNormal, cmap = "gray")
-    # aarr[0].set_title("Normal ROI")
-    # aarr[0].axis("off")
-    # aarr[1].imshow(Thresh)
-    # aarr[1].set_title("Thresh ROI")
-    # aarr[1].axis("off")
-    # plt.show()
-    roiThreshhh = cv2.cvtColor(roiNormal, cv2.COLOR_RGB2GRAY)
-    # plt.imshow(roiGray, cmap = "gray")
+transform1 = transforms.Compose([                         
+                                 transforms.ToTensor(),                               
+                                 transforms.Resize((128, 128)),
+                                 transforms.Normalize([0.5, 0.5, 0.5],[0.5, 0.5, 0.5]),
+                                 
+])
+model_path = "/model_10.checkpointsckpt"
+
+model=models.squeezenet1_0(pretrained=True)
+model.load_state_dict(torch.load("squeezenet1_0-a815701f.pth"))
+model.classifier[1] = nn.Conv2d(in_channels=512, out_channels=20,
+                                kernel_size=1)#
+model.num_classes = 20 #
+
+model.load_state_dict(torch.load(model_path)) 
+
+
+
+def IncreaseContrast(img):
+    lab= cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+    l_channel, a, b = cv2.split(lab)
+
+    # Applying CLAHE to L-channel
+    # feel free to try different values for the limit and grid size:
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-    roinew = clahe.apply(roiGray)
-    cv2.imwrite(output_path,roinew)
+    cl = clahe.apply(l_channel)
 
-# for i in range(1,21):
-#     inp='./test_images/004/r/'+str(i)+'.JPG'
-#     outp='./ROI/'+'052_'+str(i)+'.bmp'
-#     getROI(inp,outp)
+    # merge the CLAHE enhanced L-channel with the a and b channel
+    limg = cv2.merge((cl,a,b))
+
+    # Converting image from LAB Color model to BGR color spcae
+    enhanced_img = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
+
+    # Stacking the original image with the enhanced image
+    #result = np.hstack((img, enhanced_img))
+    return enhanced_img
+time_now=time.time()
+fram_id=0
+cap = cv2.VideoCapture(0)
+with mp_hands.Hands(static_image_mode=False, max_num_hands=2, min_detection_confidence=0.5) as hands:
+    while True:
+        start_time = time.time() # Lấy thời điểm bắt đầu xử lý khung hình
+        OK,frame=cap.read()
+        
+        if not OK:
+            print("Ignoring empty camera frame.")
+            continue
+
+        
+        
+        imgaeResize = IncreaseContrast(frame)
+        imgaeRGB = imgaeResize
+        imgaeResize.flags.writeable = False
+        imgaeRGB.flags.writeable = False
+        imgaeRGB = imgaeResize
+        results = hands.process(imgaeResize)
+        # cv2.imshow("RESIZE ", imgaeResize)
+        cropped_image = cv2.cvtColor(imgaeResize, cv2.COLOR_BGR2GRAY)
+        h = cropped_image.shape[0]
+        w = cropped_image.shape[1]
+        if results.multi_hand_landmarks:
+            for hand_landmark in results.multi_hand_landmarks:
+                pixelCoordinatesLandmarkPoint5 = mp_drawing._normalized_to_pixel_coordinates(hand_landmark.landmark[5].x, hand_landmark.landmark[5].y, w, h)
+                pixelCoordinatesLandmarkPoint9 = mp_drawing._normalized_to_pixel_coordinates(hand_landmark.landmark[9].x, hand_landmark.landmark[9].y, w, h)
+                pixelCoordinatesLandmarkPoint13 = mp_drawing._normalized_to_pixel_coordinates(hand_landmark.landmark[13].x, hand_landmark.landmark[13].y, w, h)
+                pixelCoordinatesLandmarkPoint17 = mp_drawing._normalized_to_pixel_coordinates(hand_landmark.landmark[17].x, hand_landmark.landmark[17].y, w, h)
+                x1 = (pixelCoordinatesLandmarkPoint17[0] +  pixelCoordinatesLandmarkPoint13[0]) / 2 + (pixelCoordinatesLandmarkPoint17[0] - pixelCoordinatesLandmarkPoint13[0])
+                y1 = (pixelCoordinatesLandmarkPoint17[1] + pixelCoordinatesLandmarkPoint13[1]) / 2 - 50
+                x2 = (pixelCoordinatesLandmarkPoint5[0] + pixelCoordinatesLandmarkPoint9[0]) / 2 - 50
+                y2 = (pixelCoordinatesLandmarkPoint5[1] + pixelCoordinatesLandmarkPoint9[1]) / 2 - 50
+                theta = np.arctan2((y2 - y1), (x2 - x1))*180/np.pi 
+                R = cv2.getRotationMatrix2D(
+                    (int(x2), int(y2)), theta, 1)
+                align_img = cv2.warpAffine(cropped_image, R, (w, h)) 
+                imgaeRGB = cv2.warpAffine(imgaeRGB, R, (w, h)) 
+        results = hands.process(imgaeRGB)
+        cropped_image = cv2.cvtColor(imgaeRGB, cv2.COLOR_BGR2GRAY)
+        h = cropped_image.shape[0]
+        w = cropped_image.shape[1]
+        print("Đưa tay vào đi bạn....!!!!!!!!!")
+        if results.multi_hand_landmarks:
+            for hand_landmark in results.multi_hand_landmarks:
+                pixelCoordinatesLandmarkPoint5 = mp_drawing._normalized_to_pixel_coordinates(hand_landmark.landmark[5].x, hand_landmark.landmark[5].y, w, h)
+                pixelCoordinatesLandmarkPoint9 = mp_drawing._normalized_to_pixel_coordinates(hand_landmark.landmark[9].x, hand_landmark.landmark[9].y, w, h)
+                pixelCoordinatesLandmarkPoint13 = mp_drawing._normalized_to_pixel_coordinates(hand_landmark.landmark[13].x, hand_landmark.landmark[13].y, w, h)
+                pixelCoordinatesLandmarkPoint17 = mp_drawing._normalized_to_pixel_coordinates(hand_landmark.landmark[17].x, hand_landmark.landmark[17].y, w, h)
+                x1 = (pixelCoordinatesLandmarkPoint17[0] +  pixelCoordinatesLandmarkPoint13[0]) / 2 
+                y1 = (pixelCoordinatesLandmarkPoint17[1] + pixelCoordinatesLandmarkPoint13[1]) / 2 
+                x2 = (pixelCoordinatesLandmarkPoint5[0] + pixelCoordinatesLandmarkPoint9[0]) / 2 
+                y2 = (pixelCoordinatesLandmarkPoint5[1] + pixelCoordinatesLandmarkPoint9[1]) / 2 
+                theta = np.arctan2((y2 - y1), (x2 - x1))*180/np.pi 
+                R = cv2.getRotationMatrix2D(
+                    (int(x2), int(y2)), theta, 1)
+                align_img = cv2.warpAffine(cropped_image, R, (w, h)) 
+                roi_zone_img = cv2.cvtColor(align_img, cv2.COLOR_GRAY2BGR)
+                point_1 = [x1, y1]
+                point_2 = [x2, y2]
+                point_1 = (R[:, :2] @ point_1 + R[:, -1]).astype(np.int)
+                point_2 = (R[:, :2] @ point_2 + R[:, -1]).astype(np.int)
+                landmarks_selected_align = {
+                    "x": [point_1[0], point_2[0]], "y": [point_1[1], point_2[1]]}
+                point_1 = np.array([landmarks_selected_align["x"]
+                                    [0], landmarks_selected_align["y"][0]])
+                point_2 = np.array([landmarks_selected_align["x"]
+                                    [1], landmarks_selected_align["y"][1]])
+                uxROI = pixelCoordinatesLandmarkPoint17[0]
+                uyROI = pixelCoordinatesLandmarkPoint17[1]
+                lxROI = pixelCoordinatesLandmarkPoint5[0]
+                lyROI = point_2[1] + 4*(point_2-point_1)[0]//3 
+                
+                roi_img = align_img[uyROI:lyROI, uxROI:lxROI]
+                roi_img = cv2.resize(roi_img, (128,128))
+                # roi_img = check_and_convert_to_rgb(roi_img)
+                roi_img=cv2.cvtColor(roi_img,cv2.COLOR_RGB2BGR)
+                roi_img = transform1(roi_img)
+                roi_img = roi_img.unsqueeze(0) # Thêm chiều batch (batch size = 1)
+                with torch.no_grad():
+                    model.eval()  # Chuyển sang chế độ infereqnce
+                    output = model(roi_img) # Dự đoán kết quả
+                    probs = nn.functional.softmax(output, dim=1)
+                    _, predicted = torch.max(output.data, 1)
+                    class_dict = predicted.item() # Lấy chỉ số của lớp dự đoán được
+                cv2.rectangle(imgaeResize, (uxROI, uyROI),
+                    (lxROI, lyROI), (10, 255, 15), 2)
+                # cv2.putText(roi_img,"nhan",(w,h),cv2.FONT_HERSHEY_SIMPLEX,0.8,(255,25,255),2)
+                # cv2.putText(imgaeResize, str(class_dict[predicted.item()]), (uxROI, uyROI), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 25, 255), 2)
+                # cv2.putText(imgaeResize, str(class_dict[(predicted.item())]), (uxROI, uyROI), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 25, 255), 2)
+                # text=class_dict[predicted.item()]
+                # # 
+                # # class_dict =['010', '011', '012', '013', '014', '015', '016', '017', '018', '019', '020', '021',
+                #               '022', '023', '024', '025', '026', '027', '028', '029', '030', '031', '032', '033', 
+                #               '034', '035', '036', '037', '038', '039', '040', 'DU', 'DUY', 'DUYKHANG', 'HAN', 'HIEU', 'KHOA', 
+                #              'NHAN', 'NHI', 'QUAN', 'QUANG', 'TAI', 'THAI', 'THONG', 'TIN', 'TRINH', 'T_QUAN', 'VIET', 'VINH', 'VY']
+                
+                class_dict=['DU', 'DUY', 'HAN', 'HIEU', 'HUNG', 'KHANG', 'KHOA', 'NHAN', 'NHI', 'QUAN', 'QUANG', 'TAI', 'THAI', 'THONG', 'THUC QUAN', 'TIN', 'TRINH', 'VIET', 'VINH', 'VY']
+                confidence = probs[0][predicted].item()
+                if confidence >= 0.5:
+                    confidence = probs[0][predicted].item() * 100
+                    label = "{} {:.2f}%".format(class_dict[predicted.item()], confidence)
+                    cv2.putText(imgaeResize, label, (uxROI, uyROI), cv2.FONT_HERSHEY_COMPLEX, 0.6, (255, 25, 255), 2)
+                    
+                    print("Kết quả nhận dạng là:",class_dict[(predicted.item())])
+                    
+                else:
+                    cv2.putText(imgaeResize, "UNKNOW", (uxROI, uyROI), cv2.FONT_HERSHEY_DUPLEX ,0.8, (255, 25, 255), 2)
+                    print("Không xác định được nhãn") 
+            fps=1/(time.time()-start_time)
+            cv2.putText(imgaeResize, "FPS: {:.2f}".format(fps), (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2) # Hiển thị FPS trên khung hình
+            cv2.imshow('Frame',imgaeResize)
+            
+            if cv2.waitKey(1)&0xFF == ord('q'):
+                break
+cap.release()
+cv2.destroyAllWindows()
